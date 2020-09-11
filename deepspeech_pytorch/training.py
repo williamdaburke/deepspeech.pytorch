@@ -6,11 +6,11 @@ import time
 import numpy as np
 import torch.distributed as dist
 import torch.utils.data.distributed
-from apex import amp
 from hydra.utils import to_absolute_path
 from omegaconf import OmegaConf
+from torch.cuda.amp import autocast, GradScaler
+from torch.nn import CTCLoss
 from torch.nn.parallel import DistributedDataParallel
-from warpctc_pytorch import CTCLoss
 
 from deepspeech_pytorch.checkpoint import FileCheckpointHandler, GCSCheckpointHandler
 from deepspeech_pytorch.configs.train_config import SGDConfig, AdamConfig, BiDirectionalConfig, UniDirectionalConfig, \
@@ -168,29 +168,22 @@ def train(cfg):
     else:
         raise ValueError("Optimizer has not been specified correctly.")
 
-    model, optimizer = amp.initialize(model, optimizer,
-                                      enabled=not cfg.training.no_cuda,
-                                      opt_level=cfg.apex.opt_level,
-                                      loss_scale=cfg.apex.loss_scale)
     if state.optim_state is not None:
         optimizer.load_state_dict(state.optim_state)
-    if state.amp_state is not None:
-        amp.load_state_dict(state.amp_state)
 
     # Track states for optimizer/amp
     state.track_optim_state(optimizer)
-    if not cfg.training.no_cuda:
-        state.track_amp_state(amp)
 
     if is_distributed:
         model = DistributedDataParallel(model, device_ids=[device_id])
     print(model)
     print("Number of parameters: %d" % DeepSpeech.get_param_size(model))
 
-    criterion = CTCLoss()
+    criterion = CTCLoss(reduction='sum', zero_infinity=True)
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
+    scaler = GradScaler()
 
     for epoch in range(state.epoch, cfg.training.epochs):
         model.train()
@@ -207,24 +200,21 @@ def train(cfg):
             data_time.update(time.time() - end)
             inputs = inputs.to(device)
 
-            out, output_sizes = model(inputs, input_sizes)
-            out = out.transpose(0, 1)  # TxNxH
-
-            float_out = out.float()  # ensure float32 for loss
-            loss = criterion(float_out, targets, output_sizes, target_sizes).to(device)
-            loss = loss / inputs.size(0)  # average the loss by minibatch
-            loss_value = loss.item()
+            optimizer.zero_grad()
+            with autocast():
+                out, output_sizes = model(inputs, input_sizes)
+                out = out.transpose(0, 1)  # TxNxH
+                loss = criterion(out, targets, output_sizes, target_sizes).to(device)
+            loss_value = loss.item() / inputs.size(0)  # average the loss by minibatch
 
             # Check to ensure valid loss was calculated
             valid_loss, error = check_loss(loss, loss_value)
             if valid_loss:
-                optimizer.zero_grad()
-
-                # compute gradient
-                with amp.scale_loss(loss, optimizer) as scaled_loss:
-                    scaled_loss.backward()
-                torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), cfg.optim.max_norm)
-                optimizer.step()
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.optim.max_norm)
+                scaler.step(optimizer)
+                scaler.update()
             else:
                 print(error)
                 print('Skipping grad update')

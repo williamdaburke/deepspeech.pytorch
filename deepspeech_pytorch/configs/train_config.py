@@ -112,12 +112,6 @@ class VisualizationConfig:
 
 
 @dataclass
-class ApexConfig:
-    opt_level: str = 'O1'  # Apex optimization level, check https://nvidia.github.io/apex/amp.html for more information
-    loss_scale: int = 1  # Loss scaling used by Apex. Default is 1 due to warp-ctc not supporting scaling of gradients
-
-
-@dataclass
 class DeepSpeechConfig:
     defaults: List[Any] = field(default_factory=lambda: defaults)
     optim: Any = MISSING
@@ -126,5 +120,4 @@ class DeepSpeechConfig:
     training: TrainingConfig = TrainingConfig()
     data: DataConfig = DataConfig()
     augmentation: AugmentationConfig = AugmentationConfig()
-    apex: ApexConfig = ApexConfig()
     visualization: VisualizationConfig = VisualizationConfig()
