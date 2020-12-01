@@ -37,7 +37,7 @@ def create_manifest(
     }
     for wav_path in tqdm(file_paths, total=len(file_paths)):
         wav_path = str(wav_path.relative_to(data_path))
-        transcript_path = wav_path.replace('/wav/', '/txt/').replace('.wav', '.txt')
+        transcript_path = wav_path.replace('wav/', 'txt/').replace('.wav', '.txt')
         manifest['samples'].append({
             'wav_path': wav_path,
             'transcript_path': transcript_path
