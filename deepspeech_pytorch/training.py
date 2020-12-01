@@ -85,6 +85,7 @@ def train(cfg: DeepSpeechConfig):
         replace_sampler_ddp=False,
         accelerator='ddp',
         plugins='ddp_sharded' if cfg.training.sharded else None,
-        callbacks=[CUDACallback()]
+        callbacks=[CUDACallback()],
+        limit_val_batches=0,
     )
     trainer.fit(model, data_loader)
