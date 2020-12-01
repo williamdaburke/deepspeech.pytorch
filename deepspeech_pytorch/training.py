@@ -76,7 +76,7 @@ def train(cfg: DeepSpeechConfig):
     )
 
     trainer = pl.Trainer(
-        max_epochs=cfg.training.epochs,
+        max_epochs=1,
         gpus=cfg.training.gpus,
         checkpoint_callback=checkpoint_callback,
         resume_from_checkpoint=cfg.checkpointing.continue_from if cfg.checkpointing.continue_from else None,
