@@ -84,6 +84,7 @@ def train(cfg: DeepSpeechConfig):
         gradient_clip_val=cfg.optim.max_norm,
         replace_sampler_ddp=False,
         accelerator='ddp',
+        plugins='ddp_sharded' if cfg.training.sharded else None,
         callbacks=[CUDACallback()]
     )
     trainer.fit(model, data_loader)
