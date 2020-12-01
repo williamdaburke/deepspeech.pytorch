@@ -83,7 +83,7 @@ def train(cfg: DeepSpeechConfig):
         precision=cfg.training.precision.value,
         gradient_clip_val=cfg.optim.max_norm,
         replace_sampler_ddp=False,
-        distributed_backend=cfg.training.multigpu.value,
+        accelerator='ddp',
         callbacks=[CUDACallback()]
     )
     trainer.fit(model, data_loader)
