@@ -83,7 +83,7 @@ class GCSCheckpointConfig(ModelCheckpointConf):
 @dataclass
 class DeepSpeechTrainerConf(TrainerConf):
     callbacks: Any = MISSING
-
+    gpus: int = 1
 
 @dataclass
 class DeepSpeechConfig:

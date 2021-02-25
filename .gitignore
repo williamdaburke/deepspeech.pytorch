@@ -105,3 +105,16 @@ models/
 data/*.csv
 data/*_dataset/
 .vscode/
+
+an4_dataset/
+data/an4_test_manifest.json
+data/an4_train_manifest.json
+data/an4_val_manifest.json
+deepspeech.pytorch/
+deepspeech_pytorch.egg-info/
+deepspeech_pytorch/__pycache__/
+deepspeech_pytorch/configs/__pycache__/
+deepspeech_pytorch/data/__pycache__/
+deepspeech_pytorch/loader/__pycache__/
+experiment/
+outputs/
