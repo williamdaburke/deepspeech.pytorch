@@ -106,3 +106,7 @@ data/*.csv
 data/*_dataset/
 .vscode/
 .json
+data/
+experiment/
+outputs/
+
