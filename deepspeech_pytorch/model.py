@@ -155,7 +155,7 @@ class DeepSpeech(pl.LightningModule):
         
         self.labels = labels
         num_classes = len(self.labels)
-
+        
         if not self.fcn:
             self.conv = MaskConv(nn.Sequential(
                 nn.Conv2d(1, 32, kernel_size=(41, 11), stride=(2, 2), padding=(20, 5)),
@@ -189,12 +189,6 @@ class DeepSpeech(pl.LightningModule):
                     ) for x in range(self.model_cfg.hidden_layers - 1)
                 )
             )
-            
-            self.lookahead = nn.Sequential(
-                # consider adding batch norm?
-                Lookahead(self.model_cfg.hidden_size, context=self.model_cfg.lookahead_context),
-                nn.Hardtanh(0, 20, inplace=True)
-            ) if not self.bidirectional and not self.fcn else None
 
             fully_connected = nn.Sequential(
                 nn.BatchNorm1d(self.model_cfg.hidden_size),
@@ -207,38 +201,42 @@ class DeepSpeech(pl.LightningModule):
         else:
             #self.fcn = nn.Linear(rnn_input_size, self.model_cfg.hidden_size, bias=False)
             # alexnet
+            
+            stride_red = (3,1)
+            stride_red2 = (2,1)
+            pad_red = (1,1)
             self.conv = MaskConv(nn.Sequential(
-                nn.Conv2d(1, 96, kernel_size=(11, 11), stride=(4, 4), padding=(20, 20), bias=False),
-                nn.MaxPool2d((3,5), stride=2, padding=0),
+                nn.Conv2d(1, 96, kernel_size=(41, 11), stride=(2, 1), padding=(20, 10), bias=False),
+                nn.MaxPool2d((2,1), stride=None, padding=0),
                 nn.BatchNorm2d(96),
                 nn.ReLU(inplace=True),
                 
-                nn.Conv2d(96, 256, kernel_size=(5, 5), stride=(2, 2), padding=(18, 18)),
-                nn.MaxPool2d((1,5), stride=2, padding=0),
+                nn.Conv2d(96, 256, kernel_size=(21, 11), stride=(2, 1), padding=(10, 5)),
+                nn.MaxPool2d((2,1), stride=None, padding=0),
                 nn.BatchNorm2d(256),
                 nn.ReLU(inplace=True),
                 
-                nn.Conv2d(256, 384, kernel_size=(3, 3), stride=(2, 2), padding=(10, 10)),
+                nn.Conv2d(256, 384, kernel_size=(3, 3), stride=stride_red, padding=pad_red),
                 nn.BatchNorm2d(384),
                 nn.ReLU(inplace=True),
                 
-                nn.Conv2d(384, 512, kernel_size=(3, 3), stride=(2, 2), padding=(10, 10)),
+                nn.Conv2d(384, 512, kernel_size=(3, 3), stride=stride_red, padding=pad_red),
                 nn.BatchNorm2d(512),
                 nn.ReLU(inplace=True),
                 
-                nn.Conv2d(512, 384, kernel_size=(3, 3), stride=(2, 2), padding=(10, 10)),
+                nn.Conv2d(512, 384, kernel_size=(3, 3), stride=stride_red, padding=pad_red),
                 nn.BatchNorm2d(384),
                 nn.ReLU(inplace=True),
                 
-                nn.Conv2d(384, 256, kernel_size=(3, 3), stride=(2, 2), padding=(10,10)),
+                nn.Conv2d(384, 256, kernel_size=(3, 3), stride=stride_red2, padding=pad_red),
                 nn.BatchNorm2d(256),
                 nn.ReLU(inplace=True),
                 
-                nn.Conv2d(256, 96, kernel_size=(3, 3), stride=(2, 2), padding=(10,10)),
+                nn.Conv2d(256, 96, kernel_size=(3, 3), stride=stride_red2, padding=pad_red),
                 nn.BatchNorm2d(96),
                 nn.ReLU(inplace=True),
                 
-                nn.Conv2d(96, 32, kernel_size=(3, 3), stride=(2, 2), padding=(10,10)),
+                nn.Conv2d(96, 32, kernel_size=(3, 3), stride=stride_red2, padding=pad_red),
                 nn.BatchNorm2d(32),
                 nn.ReLU(inplace=True),
                 
@@ -246,6 +244,14 @@ class DeepSpeech(pl.LightningModule):
                 #nn.BatchNorm2d(num_classes),
                 nn.ReLU(inplace=True)
             ))
+            
+                    
+        self.lookahead = nn.Sequential(
+            # consider adding batch norm?
+            Lookahead(num_classes if self.fcn else self.model_cfg.hidden_size, context=self.model_cfg.lookahead_context),
+            nn.Hardtanh(0, 20, inplace=True)
+        ) if not self.bidirectional else None
+
 
         self.inference_softmax = InferenceBatchSoftmax()
         self.criterion = CTCLoss(blank=self.labels.index('_'), reduction='sum', zero_infinity=True)
@@ -260,50 +266,61 @@ class DeepSpeech(pl.LightningModule):
         )
 
     def forward(self, x, lengths):
-        sizes = x.size()
-        #print(sizes)
+        
+        #print(1, x.size())
+        
         lengths = lengths.cpu().int()
         output_lengths = self.get_seq_lens(lengths)
         x, _ = self.conv(x, output_lengths)
-        
         sizes = x.size()
-        #print(sizes)
-        x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
+        
         
         if not self.fcn:
-            
+            #print('3a', x.size())
+            x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
+            #print('3b', x.size())
             x = x.transpose(1, 2).transpose(0, 1).contiguous()  # TxNxH
-            
+            #print(3, x.size())
             for rnn in self.rnns:
                 x = rnn(x, output_lengths)
                 
             if not self.bidirectional:  # no need for lookahead layer in bidirectional
                 x = self.lookahead(x)
-
+            #print(4, x.size())
             x = self.fc(x)
+            #print('5a', x.size())
             x = x.transpose(0, 1)
+            #print('5b', x.size())
         else:
-            x = x.view(sizes[0], sizes[1], sizes[2]* sizes[3])  # Collapse feature dimension
-            #print(sizes)
-            x = x.transpose(1, 2).contiguous()
-
-            #x = self.fcn(x)
-
+            #print('3a', x.size())
+            x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
+            #x=torch.mean(x,dim=2)
+            
+            #print('3b', x.size())
+            x = x.transpose(1, 2).transpose(0, 1).contiguous()  # TxNxH
+            #print(3, x.size())
+            
+            x = self.lookahead(x)
+            #print(4, x.size())
+            x = x.transpose(0, 1)
+            
+            #print(5, x.size())
+            
+        #print('bifs', x.size())
         # identity in training mode, softmax in eval mode
         x = self.inference_softmax(x)
-        sizes = x.size()
-        print(sizes)
+        
         return x, output_lengths
 
     def training_step(self, batch, batch_idx):
         inputs, targets, input_percentages, target_sizes = batch
         input_sizes = input_percentages.mul_(int(inputs.size(3))).int()
         out, output_sizes = self(inputs, input_sizes)
-        if not self.fcn:
-            out = out.transpose(0, 1)  # TxNxH
+        #print('last -1', out.size())
+        out = out.transpose(0, 1)  # TxNxH
         out = out.log_softmax(-1)
-        sizes = out.size()
-        print(sizes)
+        
+        #print('last', out.size())
         loss = self.criterion(out, targets, output_sizes, target_sizes)
         return loss
 

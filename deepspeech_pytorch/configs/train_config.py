@@ -57,6 +57,7 @@ class UniDirectionalConfig(BiDirectionalConfig):
 @dataclass
 class FullyConvolutionalConfig(BiDirectionalConfig):
     rnn_type: bool = False
+    lookahead_context: int = 20
 
 
 @dataclass
