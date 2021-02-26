@@ -208,43 +208,43 @@ class DeepSpeech(pl.LightningModule):
             #self.fcn = nn.Linear(rnn_input_size, self.model_cfg.hidden_size, bias=False)
             # alexnet
             self.conv = MaskConv(nn.Sequential(
-                nn.Conv2d(1, 12, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4), bias=False),
-                nn.MaxPool2d((3,5), stride=None, padding=0),
-                nn.BatchNorm2d(12),
+                nn.Conv2d(1, 96, kernel_size=(11, 11), stride=(4, 4), padding=(20, 20), bias=False),
+                nn.MaxPool2d((3,5), stride=2, padding=0),
+                nn.BatchNorm2d(96),
+                nn.ReLU(inplace=True),
+                
+                nn.Conv2d(96, 256, kernel_size=(5, 5), stride=(2, 2), padding=(18, 18)),
+                nn.MaxPool2d((1,5), stride=2, padding=0),
+                nn.BatchNorm2d(256),
+                nn.ReLU(inplace=True),
+                
+                nn.Conv2d(256, 384, kernel_size=(3, 3), stride=(2, 2), padding=(10, 10)),
+                nn.BatchNorm2d(384),
+                nn.ReLU(inplace=True),
+                
+                nn.Conv2d(384, 512, kernel_size=(3, 3), stride=(2, 2), padding=(10, 10)),
+                nn.BatchNorm2d(512),
+                nn.ReLU(inplace=True),
+                
+                nn.Conv2d(512, 384, kernel_size=(3, 3), stride=(2, 2), padding=(10, 10)),
+                nn.BatchNorm2d(384),
+                nn.ReLU(inplace=True),
+                
+                nn.Conv2d(384, 256, kernel_size=(3, 3), stride=(2, 2), padding=(10,10)),
+                nn.BatchNorm2d(256),
+                nn.ReLU(inplace=True),
+                
+                nn.Conv2d(256, 96, kernel_size=(3, 3), stride=(2, 2), padding=(10,10)),
+                nn.BatchNorm2d(96),
+                nn.ReLU(inplace=True),
+                
+                nn.Conv2d(96, 32, kernel_size=(3, 3), stride=(2, 2), padding=(10,10)),
+                nn.BatchNorm2d(32),
+                nn.ReLU(inplace=True),
+                
+                nn.Conv2d(32, num_classes, kernel_size=(3, 3), stride=(1, 1), padding=(1,1)),
+                #nn.BatchNorm2d(num_classes),
                 nn.ReLU(inplace=True)
-                
-#                 nn.Conv2d(12, 20, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4)),
-#                 nn.MaxPool2d((3,5), stride=None, padding=0),
-#                 nn.BatchNorm2d(20),
-#                 nn.ReLU(inplace=True),
-                
-#                 nn.Conv2d(20, 30, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4)),
-#                 nn.BatchNorm2d(30),
-#                 nn.ReLU(inplace=True),
-                
-#                 nn.Conv2d(30, 40, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4)),
-#                 nn.BatchNorm2d(20),
-#                 nn.ReLU(inplace=True),
-                
-#                 nn.Conv2d(40, 30, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4)),
-#                 nn.BatchNorm2d(30),
-#                 nn.ReLU(inplace=True),
-                
-#                 nn.Conv2d(30, 20, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4)),
-#                 nn.BatchNorm2d(20),
-#                 nn.ReLU(inplace=True),
-                
-#                 nn.Upsample(size=(1,5), mode='nearest'),
-                
-#                 nn.Conv2d(40, 12, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4)),
-#                 nn.BatchNorm2d(12),
-#                 nn.ReLU(inplace=True),
-                
-#                 nn.Upsample(size=(1,5), mode='nearest'),
-                
-#                 nn.Conv2d(12, 1, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4)),
-#                 nn.BatchNorm2d(30),
-#                 nn.ReLU(inplace=True)
             ))
 
         self.inference_softmax = InferenceBatchSoftmax()
@@ -260,13 +260,18 @@ class DeepSpeech(pl.LightningModule):
         )
 
     def forward(self, x, lengths):
+        sizes = x.size()
+        #print(sizes)
         lengths = lengths.cpu().int()
         output_lengths = self.get_seq_lens(lengths)
         x, _ = self.conv(x, output_lengths)
-
+        
+        sizes = x.size()
+        #print(sizes)
+        x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
+        
         if not self.fcn:
-            sizes = x.size()
-            x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
+            
             x = x.transpose(1, 2).transpose(0, 1).contiguous()  # TxNxH
             
             for rnn in self.rnns:
@@ -277,20 +282,28 @@ class DeepSpeech(pl.LightningModule):
 
             x = self.fc(x)
             x = x.transpose(0, 1)
-#         else:
-#             x = self.fcn(x)
+        else:
+            x = x.view(sizes[0], sizes[1], sizes[2]* sizes[3])  # Collapse feature dimension
+            #print(sizes)
+            x = x.transpose(1, 2).contiguous()
+
+            #x = self.fcn(x)
 
         # identity in training mode, softmax in eval mode
         x = self.inference_softmax(x)
+        sizes = x.size()
+        print(sizes)
         return x, output_lengths
 
     def training_step(self, batch, batch_idx):
         inputs, targets, input_percentages, target_sizes = batch
         input_sizes = input_percentages.mul_(int(inputs.size(3))).int()
         out, output_sizes = self(inputs, input_sizes)
-        out = out.transpose(0, 1)  # TxNxH
+        if not self.fcn:
+            out = out.transpose(0, 1)  # TxNxH
         out = out.log_softmax(-1)
-
+        sizes = out.size()
+        print(sizes)
         loss = self.criterion(out, targets, output_sizes, target_sizes)
         return loss
 
