@@ -10,7 +10,7 @@ from torch.cuda.amp import autocast
 from torch.nn import CTCLoss
 
 from deepspeech_pytorch.configs.train_config import SpectConfig, BiDirectionalConfig, OptimConfig, AdamConfig, \
-    SGDConfig, UniDirectionalConfig
+    SGDConfig, UniDirectionalConfig, FullyConvolutionalConfig
 from deepspeech_pytorch.decoder import GreedyDecoder
 from deepspeech_pytorch.validation import CharErrorRate, WordErrorRate
 
@@ -150,55 +150,103 @@ class DeepSpeech(pl.LightningModule):
         self.optim_cfg = optim_cfg
         self.spect_cfg = spect_cfg
         self.bidirectional = True if OmegaConf.get_type(model_cfg) is BiDirectionalConfig else False
+        self.fcn = True if OmegaConf.get_type(model_cfg) is FullyConvolutionalConfig else False
 
+        
         self.labels = labels
         num_classes = len(self.labels)
 
-        self.conv = MaskConv(nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=(41, 11), stride=(2, 2), padding=(20, 5)),
-            nn.BatchNorm2d(32),
-            nn.Hardtanh(0, 20, inplace=True),
-            nn.Conv2d(32, 32, kernel_size=(21, 11), stride=(2, 1), padding=(10, 5)),
-            nn.BatchNorm2d(32),
-            nn.Hardtanh(0, 20, inplace=True)
-        ))
-        # Based on above convolutions and spectrogram size using conv formula (W - F + 2P)/ S+1
-        rnn_input_size = int(math.floor((self.spect_cfg.sample_rate * self.spect_cfg.window_size) / 2) + 1)
-        rnn_input_size = int(math.floor(rnn_input_size + 2 * 20 - 41) / 2 + 1)
-        rnn_input_size = int(math.floor(rnn_input_size + 2 * 10 - 21) / 2 + 1)
-        rnn_input_size *= 32
-
-        self.rnns = nn.Sequential(
-            BatchRNN(
-                input_size=rnn_input_size,
-                hidden_size=self.model_cfg.hidden_size,
-                rnn_type=self.model_cfg.rnn_type.value,
-                bidirectional=self.bidirectional,
-                batch_norm=False
-            ),
-            *(
+        if not self.fcn:
+            self.conv = MaskConv(nn.Sequential(
+                nn.Conv2d(1, 32, kernel_size=(41, 11), stride=(2, 2), padding=(20, 5)),
+                nn.BatchNorm2d(32),
+                nn.Hardtanh(0, 20, inplace=True),
+                nn.Conv2d(32, 32, kernel_size=(21, 11), stride=(2, 1), padding=(10, 5)),
+                nn.BatchNorm2d(32),
+                nn.Hardtanh(0, 20, inplace=True)
+            ))
+            
+            # Based on above convolutions and spectrogram size using conv formula (W - F + 2P)/ S+1
+            rnn_input_size = int(math.floor((self.spect_cfg.sample_rate * self.spect_cfg.window_size) / 2) + 1)
+            rnn_input_size = int(math.floor(rnn_input_size + 2 * 20 - 41) / 2 + 1)
+            rnn_input_size = int(math.floor(rnn_input_size + 2 * 10 - 21) / 2 + 1)
+            rnn_input_size *= 32
+            
+            self.rnns = nn.Sequential(
                 BatchRNN(
-                    input_size=self.model_cfg.hidden_size,
+                    input_size=rnn_input_size,
                     hidden_size=self.model_cfg.hidden_size,
                     rnn_type=self.model_cfg.rnn_type.value,
-                    bidirectional=self.bidirectional
-                ) for x in range(self.model_cfg.hidden_layers - 1)
+                    bidirectional=self.bidirectional,
+                    batch_norm=False
+                ),
+                *(
+                    BatchRNN(
+                        input_size=self.model_cfg.hidden_size,
+                        hidden_size=self.model_cfg.hidden_size,
+                        rnn_type=self.model_cfg.rnn_type.value,
+                        bidirectional=self.bidirectional
+                    ) for x in range(self.model_cfg.hidden_layers - 1)
+                )
             )
-        )
+            
+            self.lookahead = nn.Sequential(
+                # consider adding batch norm?
+                Lookahead(self.model_cfg.hidden_size, context=self.model_cfg.lookahead_context),
+                nn.Hardtanh(0, 20, inplace=True)
+            ) if not self.bidirectional and not self.fcn else None
 
-        self.lookahead = nn.Sequential(
-            # consider adding batch norm?
-            Lookahead(self.model_cfg.hidden_size, context=self.model_cfg.lookahead_context),
-            nn.Hardtanh(0, 20, inplace=True)
-        ) if not self.bidirectional else None
+            fully_connected = nn.Sequential(
+                nn.BatchNorm1d(self.model_cfg.hidden_size),
+                nn.Linear(self.model_cfg.hidden_size, num_classes, bias=False)
+            )
+            self.fc = nn.Sequential(
+                SequenceWise(fully_connected),
+            )
+            
+        else:
+            #self.fcn = nn.Linear(rnn_input_size, self.model_cfg.hidden_size, bias=False)
+            # alexnet
+            self.conv = MaskConv(nn.Sequential(
+                nn.Conv2d(1, 12, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4), bias=False),
+                nn.MaxPool2d((3,5), stride=None, padding=0),
+                nn.BatchNorm2d(12),
+                nn.ReLU(inplace=True)
+                
+#                 nn.Conv2d(12, 20, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4)),
+#                 nn.MaxPool2d((3,5), stride=None, padding=0),
+#                 nn.BatchNorm2d(20),
+#                 nn.ReLU(inplace=True),
+                
+#                 nn.Conv2d(20, 30, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4)),
+#                 nn.BatchNorm2d(30),
+#                 nn.ReLU(inplace=True),
+                
+#                 nn.Conv2d(30, 40, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4)),
+#                 nn.BatchNorm2d(20),
+#                 nn.ReLU(inplace=True),
+                
+#                 nn.Conv2d(40, 30, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4)),
+#                 nn.BatchNorm2d(30),
+#                 nn.ReLU(inplace=True),
+                
+#                 nn.Conv2d(30, 20, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4)),
+#                 nn.BatchNorm2d(20),
+#                 nn.ReLU(inplace=True),
+                
+#                 nn.Upsample(size=(1,5), mode='nearest'),
+                
+#                 nn.Conv2d(40, 12, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4)),
+#                 nn.BatchNorm2d(12),
+#                 nn.ReLU(inplace=True),
+                
+#                 nn.Upsample(size=(1,5), mode='nearest'),
+                
+#                 nn.Conv2d(12, 1, kernel_size=(3, 3), stride=(1, 1), padding=(4, 4)),
+#                 nn.BatchNorm2d(30),
+#                 nn.ReLU(inplace=True)
+            ))
 
-        fully_connected = nn.Sequential(
-            nn.BatchNorm1d(self.model_cfg.hidden_size),
-            nn.Linear(self.model_cfg.hidden_size, num_classes, bias=False)
-        )
-        self.fc = nn.Sequential(
-            SequenceWise(fully_connected),
-        )
         self.inference_softmax = InferenceBatchSoftmax()
         self.criterion = CTCLoss(blank=self.labels.index('_'), reduction='sum', zero_infinity=True)
         self.evaluation_decoder = GreedyDecoder(self.labels)  # Decoder used for validation
@@ -216,18 +264,22 @@ class DeepSpeech(pl.LightningModule):
         output_lengths = self.get_seq_lens(lengths)
         x, _ = self.conv(x, output_lengths)
 
-        sizes = x.size()
-        x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
-        x = x.transpose(1, 2).transpose(0, 1).contiguous()  # TxNxH
+        if not self.fcn:
+            sizes = x.size()
+            x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
+            x = x.transpose(1, 2).transpose(0, 1).contiguous()  # TxNxH
+            
+            for rnn in self.rnns:
+                x = rnn(x, output_lengths)
+                
+            if not self.bidirectional:  # no need for lookahead layer in bidirectional
+                x = self.lookahead(x)
 
-        for rnn in self.rnns:
-            x = rnn(x, output_lengths)
+            x = self.fc(x)
+            x = x.transpose(0, 1)
+#         else:
+#             x = self.fcn(x)
 
-        if not self.bidirectional:  # no need for lookahead layer in bidirectional
-            x = self.lookahead(x)
-
-        x = self.fc(x)
-        x = x.transpose(0, 1)
         # identity in training mode, softmax in eval mode
         x = self.inference_softmax(x)
         return x, output_lengths

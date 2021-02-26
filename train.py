@@ -3,7 +3,7 @@ from hydra.core.config_store import ConfigStore
 from hydra_configs.pytorch_lightning.callbacks import ModelCheckpointConf
 
 from deepspeech_pytorch.configs.train_config import DeepSpeechConfig, AdamConfig, SGDConfig, BiDirectionalConfig, \
-    UniDirectionalConfig, GCSCheckpointConfig
+    UniDirectionalConfig, GCSCheckpointConfig, FullyConvolutionalConfig
 from deepspeech_pytorch.training import train
 
 cs = ConfigStore.instance()
@@ -14,6 +14,7 @@ cs.store(group="checkpoint", name="file", node=ModelCheckpointConf)
 cs.store(group="checkpoint", name="gcs", node=GCSCheckpointConfig)
 cs.store(group="model", name="bidirectional", node=BiDirectionalConfig)
 cs.store(group="model", name="unidirectional", node=UniDirectionalConfig)
+cs.store(group="model", name="fcn", node=FullyConvolutionalConfig)
 
 
 @hydra.main(config_name="config")

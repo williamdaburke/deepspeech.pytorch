@@ -54,6 +54,10 @@ class BiDirectionalConfig:
 class UniDirectionalConfig(BiDirectionalConfig):
     lookahead_context: int = 20  # The lookahead context for convolution after RNN layers
 
+@dataclass
+class FullyConvolutionalConfig(BiDirectionalConfig):
+    rnn_type: bool = False
+
 
 @dataclass
 class OptimConfig:
