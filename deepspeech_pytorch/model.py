@@ -245,6 +245,64 @@ class DeepSpeech(pl.LightningModule):
                 nn.ReLU(inplace=True)
             ))
             
+        self.conv1_1 = nn.Conv2d(1, 64, 3, padding=100)
+        self.relu1_1 = nn.ReLU(inplace=True)
+        self.conv1_2 = nn.Conv2d(64, 64, 3, padding=1)
+        self.relu1_2 = nn.ReLU(inplace=True)
+        self.pool1 = nn.MaxPool2d(2, stride=2, ceil_mode=True)  # 1/2
+
+        # conv2
+        self.conv2_1 = nn.Conv2d(64, 128, 3, padding=1)
+        self.relu2_1 = nn.ReLU(inplace=True)
+        self.conv2_2 = nn.Conv2d(128, 128, 3, padding=1)
+        self.relu2_2 = nn.ReLU(inplace=True)
+        self.pool2 = nn.MaxPool2d(2, stride=2, ceil_mode=True)  # 1/4
+
+        # conv3
+        self.conv3_1 = nn.Conv2d(128, 256, 3, padding=1)
+        self.relu3_1 = nn.ReLU(inplace=True)
+        self.conv3_2 = nn.Conv2d(256, 256, 3, padding=1)
+        self.relu3_2 = nn.ReLU(inplace=True)
+        self.conv3_3 = nn.Conv2d(256, 256, 3, padding=1)
+        self.relu3_3 = nn.ReLU(inplace=True)
+        self.pool3 = nn.MaxPool2d(2, stride=2, ceil_mode=True)  # 1/8
+
+        # conv4
+        self.conv4_1 = nn.Conv2d(256, 512, 3, padding=1)
+        self.relu4_1 = nn.ReLU(inplace=True)
+        self.conv4_2 = nn.Conv2d(512, 512, 3, padding=1)
+        self.relu4_2 = nn.ReLU(inplace=True)
+        self.conv4_3 = nn.Conv2d(512, 512, 3, padding=1)
+        self.relu4_3 = nn.ReLU(inplace=True)
+        self.pool4 = nn.MaxPool2d(2, stride=2, ceil_mode=True)  # 1/16
+
+        # conv5
+        self.conv5_1 = nn.Conv2d(512, 512, 3, padding=1)
+        self.relu5_1 = nn.ReLU(inplace=True)
+        self.conv5_2 = nn.Conv2d(512, 512, 3, padding=1)
+        self.relu5_2 = nn.ReLU(inplace=True)
+        self.conv5_3 = nn.Conv2d(512, 512, 3, padding=1)
+        self.relu5_3 = nn.ReLU(inplace=True)
+        self.pool5 = nn.MaxPool2d(2, stride=2, ceil_mode=True)  # 1/32
+
+        # fc6
+        self.fc6 = nn.Conv2d(512, 512, 7)
+        self.relu6 = nn.ReLU(inplace=True)
+        self.drop6 = nn.Dropout2d()
+
+        # fc7
+        self.fc7 = nn.Conv2d(512, 512, 1)
+        self.relu7 = nn.ReLU(inplace=True)
+        self.drop7 = nn.Dropout2d()
+
+        self.score_fr = nn.Conv2d(512, num_classes, 1)
+        self.score_pool4 = nn.Conv2d(512, num_classes, 1)
+
+        self.upscore2 = nn.ConvTranspose2d(
+            num_classes, num_classes, 4, stride=2, bias=False)
+        self.upscore16 = nn.ConvTranspose2d(
+            num_classes, num_classes, 32, stride=(16,16), bias=False)
+            
                     
         self.lookahead = nn.Sequential(
             # consider adding batch norm?
@@ -271,11 +329,12 @@ class DeepSpeech(pl.LightningModule):
         
         lengths = lengths.cpu().int()
         output_lengths = self.get_seq_lens(lengths)
-        x, _ = self.conv(x, output_lengths)
-        sizes = x.size()
-        
+        #print('output_lengths', output_lengths)
         
         if not self.fcn:
+            x, _ = self.conv(x, output_lengths)
+            sizes = x.size()
+        
             #print('3a', x.size())
             x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
             #print('3b', x.size())
@@ -292,9 +351,60 @@ class DeepSpeech(pl.LightningModule):
             x = x.transpose(0, 1)
             #print('5b', x.size())
         else:
+            xsize1 = x.size()
+            h = x
+            h = self.relu1_1(self.conv1_1(h))
+            h = self.relu1_2(self.conv1_2(h))
+            h = self.pool1(h)
+
+            h = self.relu2_1(self.conv2_1(h))
+            h = self.relu2_2(self.conv2_2(h))
+            h = self.pool2(h)
+
+            h = self.relu3_1(self.conv3_1(h))
+            h = self.relu3_2(self.conv3_2(h))
+            h = self.relu3_3(self.conv3_3(h))
+            h = self.pool3(h)
+
+            h = self.relu4_1(self.conv4_1(h))
+            h = self.relu4_2(self.conv4_2(h))
+            h = self.relu4_3(self.conv4_3(h))
+            h = self.pool4(h)
+            pool4 = h  # 1/16
+
+            h = self.relu5_1(self.conv5_1(h))
+            h = self.relu5_2(self.conv5_2(h))
+            h = self.relu5_3(self.conv5_3(h))
+            h = self.pool5(h)
+
+            h = self.relu6(self.fc6(h))
+            h = self.drop6(h)
+
+            h = self.relu7(self.fc7(h))
+            h = self.drop7(h)
+
+            h = self.score_fr(h)
+            h = self.upscore2(h)
+            upscore2 = h  # 1/16
+
+            h = self.score_pool4(pool4)
+            h = h[:, :, 5:5 + upscore2.size()[2], 5:5 + upscore2.size()[3]]
+            score_pool4c = h  # 1/16
+
+            h = upscore2 + score_pool4c
+            
+            h = self.upscore16(h)
+            
+            #print('h1a', h.size())
+            
+            h = h[:, :, 27:27 + xsize1[2], 27:27 + x.size()[3]].contiguous()
+            
+            x = h
+            sizes = h.size()
+            
             #print('3a', x.size())
-            x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
-            #x=torch.mean(x,dim=2)
+            #x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
+            x=torch.mean(x.transpose(1, 2),dim=1)
             
             #print('3b', x.size())
             x = x.transpose(1, 2).transpose(0, 1).contiguous()  # TxNxH
@@ -305,6 +415,7 @@ class DeepSpeech(pl.LightningModule):
             x = x.transpose(0, 1)
             
             #print(5, x.size())
+            
             
         #print('bifs', x.size())
         # identity in training mode, softmax in eval mode
@@ -379,6 +490,7 @@ class DeepSpeech(pl.LightningModule):
         :param input_length: 1D Tensor
         :return: 1D Tensor scaled by model
         """
+        return input_length
         seq_len = input_length
         for m in self.conv.modules():
             if type(m) == nn.modules.conv.Conv2d:
