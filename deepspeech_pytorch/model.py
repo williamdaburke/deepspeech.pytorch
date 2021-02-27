@@ -306,31 +306,41 @@ class DeepSpeech(pl.LightningModule):
                 nn.Conv1d(
                     8192,
                     4096,
-                    kernel_size=c1d_kernel,
+                    kernel_size=7,
                     stride=1,
                     groups=1, #self.n_features,
-                    padding=1,
+                    padding=3,
                     bias=False
                 ),
                 nn.AvgPool1d(1),
                 nn.ReLU(inplace=True),
                 nn.Conv1d(
+                    4096,
                     1024,
-                    512,
-                    kernel_size=c1d_kernel,
+                    kernel_size=41,
                     stride=1,
                     groups=1, #self.n_features,
-                    padding=1,
+                    padding=20,
+                    bias=False
+                ),
+                nn.ReLU(inplace=True),
+                nn.Conv1d(
+                    1024,
+                    512,
+                    kernel_size=21,
+                    stride=1,
+                    groups=1, #self.n_features,
+                    padding=10,
                     bias=False
                 ),
                 nn.ReLU(inplace=True),
                 nn.Conv1d(
                     512,
                     96,
-                    kernel_size=c1d_kernel,
+                    kernel_size=21,
                     stride=1,
                     groups=1, #self.n_features,
-                    padding=1,
+                    padding=10,
                     bias=False
                 ),
                 nn.ReLU(inplace=True),
@@ -396,7 +406,10 @@ class DeepSpeech(pl.LightningModule):
             #print('5a', x.size())
             x = x.transpose(0, 1)
         else:
+            #print(4, x.size())
             x = self.conv1D(x)
+            #print('5a', x.size())
+            
             
             x = x.transpose(1, 2).contiguous()
             x = self.lookahead(x).transpose(0, 1)
