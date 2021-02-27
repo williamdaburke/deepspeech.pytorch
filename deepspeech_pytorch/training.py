@@ -45,8 +45,8 @@ def train(cfg: DeepSpeechConfig):
         precision=cfg.trainer.precision,
         spect_cfg=cfg.data.spect
     )
-    #print(model)
-    #[print(c,':', cfg[c],'\n') for c in cfg.keys()] 
+    print(model)
+    [print(c,':', cfg[c],'\n') for c in cfg.keys()] 
     #return
     trainer = hydra.utils.instantiate(
         config=cfg.trainer,

@@ -162,6 +162,7 @@ class DeepSpeech(pl.LightningModule):
         
         self.labels = labels
         num_classes = len(self.labels)
+        print('self.spect_cfg.window_size', self.spect_cfg.window_size)
         self.spec_features = int(math.floor((self.spect_cfg.sample_rate * self.spect_cfg.window_size) / 2) + 1)
         
         rnn_input_size = int(math.floor(self.spec_features + 2 * 20 - 41) / 2 + 1)
@@ -207,7 +208,6 @@ class DeepSpeech(pl.LightningModule):
             )
             
         else:
-            #self.fcn = nn.Linear(rnn_input_size, self.model_cfg.hidden_size, bias=False)
             self.conv = MaskConv(nn.Sequential(
                 nn.Conv2d(1, 32, kernel_size=(41, 11), stride=(2, 2), padding=(20, 5)),
                 nn.BatchNorm2d(32),
@@ -285,35 +285,38 @@ class DeepSpeech(pl.LightningModule):
 #             #self.avpool = nn.AvgPool2d(kernel_size=1, stride=1)
 #             #self.globlavgpool = nn.AdaptiveAvgPool2d((1,1))
 #             #self.flatten = nn.Flatten()
-#             c1d_kernel =3
-#             #c1d_kernel =1 
+            
+            c1d_kernel =3
+            #c1d_kernel =1 
+            channel_start_out = 2048
             conv1d_input = rnn_input_size #int(self.spec_features/16)*num_classes
+            print('conv1d_input:', conv1d_input)
             self.conv1D =  nn.Sequential(
                 nn.Conv1d(
                     conv1d_input,
-                    2048,
-                    kernel_size=10,
+                    channel_start_out,
+                    kernel_size=3,
                     stride=1,
                     groups=1,
-                    padding=10,
-                    bias=False
-                ),
-                nn.ReLU(inplace=True),
-                nn.AvgPool1d(1),
-                nn.Conv1d(
-                    2048,
-                    2048,
-                    kernel_size=c1d_kernel,
-                    stride=1,
-                    groups=1, #self.n_features,
                     padding=1,
                     bias=False
                 ),
                 nn.ReLU(inplace=True),
                 nn.AvgPool1d(1),
                 nn.Conv1d(
-                    2048,
-                    1024,
+                    channel_start_out,
+                    channel_start_out*2,
+                    kernel_size=c1d_kernel,
+                    stride=1,
+                    groups=1, #self.n_features,
+                    padding=1,
+                    bias=False
+                ),
+                nn.ReLU(inplace=True),
+                nn.AvgPool1d(1),
+                nn.Conv1d(
+                    channel_start_out*2,
+                    channel_start_out*4,
                     kernel_size=c1d_kernel,
                     stride=1,
                     groups=1, #self.n_features,
@@ -322,8 +325,19 @@ class DeepSpeech(pl.LightningModule):
                 ),
                 nn.ReLU(inplace=True),
                 nn.Conv1d(
-                    1024,
-                    512,
+                    channel_start_out*4,
+                    channel_start_out*4,
+                    kernel_size=c1d_kernel,
+                    stride=1,
+                    groups=1, #self.n_features,
+                    padding=1,
+                    bias=False
+                ),
+                nn.AvgPool1d(1),
+                nn.ReLU(inplace=True),
+                nn.Conv1d(
+                    channel_start_out*4,
+                    channel_start_out*2,
                     kernel_size=c1d_kernel,
                     stride=1,
                     groups=1, #self.n_features,
@@ -332,8 +346,8 @@ class DeepSpeech(pl.LightningModule):
                 ),
                 nn.ReLU(inplace=True),
                 nn.Conv1d(
-                    512,
-                    96,
+                    channel_start_out*2,
+                    channel_start_out,
                     kernel_size=c1d_kernel,
                     stride=1,
                     groups=1, #self.n_features,
@@ -342,7 +356,39 @@ class DeepSpeech(pl.LightningModule):
                 ),
                 nn.ReLU(inplace=True),
                 nn.Conv1d(
-                    96,
+                    channel_start_out,
+                    channel_start_out/2,
+                    kernel_size=c1d_kernel,
+                    stride=1,
+                    groups=1, #self.n_features,
+                    padding=1,
+                    bias=False
+                ),
+                nn.AvgPool1d(1),
+                nn.ReLU(inplace=True),
+                nn.Conv1d(
+                    channel_start_out/2,
+                    channel_start_out/4,
+                    kernel_size=c1d_kernel,
+                    stride=1,
+                    groups=1, #self.n_features,
+                    padding=1,
+                    bias=False
+                ),
+                nn.ReLU(inplace=True),
+                nn.Conv1d(
+                    channel_start_out/4,
+                    channel_start_out/8,
+                    kernel_size=c1d_kernel,
+                    stride=1,
+                    groups=1, #self.n_features,
+                    padding=1,
+                    bias=False
+                ),
+                nn.AvgPool1d(1),
+                nn.ReLU(inplace=True),
+                nn.Conv1d(
+                    channel_start_out/8,
                     num_classes,
                     kernel_size=c1d_kernel,
                     stride=1,
@@ -387,42 +433,28 @@ class DeepSpeech(pl.LightningModule):
         #print('3a', x.size())
         x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
         #print('3b', x.size())
-        x = x.transpose(1, 2).transpose(0, 1).contiguous()  # TxNxH
+          # TxNxH
         #print(3, x.size())
         
         if not self.fcn:
+            x = x.transpose(1, 2).transpose(0, 1).contiguous()
+            
             for rnn in self.rnns:
                 x = rnn(x, output_lengths)
+                
+            if not self.bidirectional:  # no need for lookahead layer in bidirectional
+                x = self.lookahead(x)
+            #print(4, x.size())
+            x = self.fc(x)
+            #print('5a', x.size())
+            x = x.transpose(0, 1)
         else:
             x = self.conv1D(x)
             
-        if not self.bidirectional:  # no need for lookahead layer in bidirectional
-            x = self.lookahead(x)
-        #print(4, x.size())
-        x = self.fc(x)
-        #print('5a', x.size())
-        x = x.transpose(0, 1)
+            x = x.transpose(1, 2).contiguous()
+            x = self.lookahead(x).transpose(0, 1)
+            x = x.transpose(0, 1)
         
-        
-#         if not self.fcn:
-#             x, _ = self.conv(x, output_lengths)
-#             sizes = x.size()
-        
-#             #print('3a', x.size())
-#             x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3])  # Collapse feature dimension
-#             #print('3b', x.size())
-#             x = x.transpose(1, 2).transpose(0, 1).contiguous()  # TxNxH
-#             #print(3, x.size())
-#             for rnn in self.rnns:
-#                 x = rnn(x, output_lengths)
-                
-#             if not self.bidirectional:  # no need for lookahead layer in bidirectional
-#                 x = self.lookahead(x)
-#             #print(4, x.size())
-#             x = self.fc(x)
-#             #print('5a', x.size())
-#             x = x.transpose(0, 1)
-#             #print('5b', x.size())
 #         else:
 #             xsize1 = x.size()
 #             #print('x',x.size())
@@ -574,8 +606,8 @@ class DeepSpeech(pl.LightningModule):
         :param input_length: 1D Tensor
         :return: 1D Tensor scaled by model
         """
-        if self.fcn:
-            return input_length
+#         if self.fcn:
+#             return input_length
         seq_len = input_length
         for m in self.conv.modules():
             if type(m) == nn.modules.conv.Conv2d:
