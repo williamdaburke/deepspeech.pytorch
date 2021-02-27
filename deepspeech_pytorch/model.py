@@ -288,7 +288,7 @@ class DeepSpeech(pl.LightningModule):
             
             c1d_kernel =3
             #c1d_kernel =1 
-            channel_start_out = 2048
+            channel_start_out = 1024
             conv1d_input = rnn_input_size #int(self.spec_features/16)*num_classes
             print('conv1d_input:', conv1d_input)
             self.conv1D =  nn.Sequential(
@@ -326,7 +326,7 @@ class DeepSpeech(pl.LightningModule):
                 nn.ReLU(inplace=True),
                 nn.Conv1d(
                     int(channel_start_out*4),
-                    int(channel_start_out*4),
+                    int(channel_start_out*8),
                     kernel_size=c1d_kernel,
                     stride=1,
                     groups=1, #self.n_features,
@@ -336,8 +336,18 @@ class DeepSpeech(pl.LightningModule):
                 nn.AvgPool1d(1),
                 nn.ReLU(inplace=True),
                 nn.Conv1d(
+                    int(channel_start_out*8),
+                    int(channel_start_out*8),
+                    kernel_size=c1d_kernel,
+                    stride=1,
+                    groups=1, #self.n_features,
+                    padding=1,
+                    bias=False
+                ),
+                nn.ReLU(inplace=True),
+                nn.Conv1d(
+                    int(channel_start_out*8),
                     int(channel_start_out*4),
-                    int(channel_start_out*2),
                     kernel_size=c1d_kernel,
                     stride=1,
                     groups=1, #self.n_features,
@@ -346,18 +356,8 @@ class DeepSpeech(pl.LightningModule):
                 ),
                 nn.ReLU(inplace=True),
                 nn.Conv1d(
-                    int(channel_start_out*2),
+                    int(channel_start_out*4),
                     channel_start_out,
-                    kernel_size=c1d_kernel,
-                    stride=1,
-                    groups=1, #self.n_features,
-                    padding=1,
-                    bias=False
-                ),
-                nn.ReLU(inplace=True),
-                nn.Conv1d(
-                    channel_start_out,
-                    int(channel_start_out/2),
                     kernel_size=c1d_kernel,
                     stride=1,
                     groups=1, #self.n_features,
@@ -367,8 +367,8 @@ class DeepSpeech(pl.LightningModule):
                 nn.AvgPool1d(1),
                 nn.ReLU(inplace=True),
                 nn.Conv1d(
-                    int(channel_start_out/2),
-                    int(channel_start_out/4),
+                    channel_start_out,
+                    512,
                     kernel_size=c1d_kernel,
                     stride=1,
                     groups=1, #self.n_features,
