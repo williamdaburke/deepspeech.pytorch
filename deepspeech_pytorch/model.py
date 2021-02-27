@@ -285,7 +285,7 @@ class DeepSpeech(pl.LightningModule):
 #             #self.avpool = nn.AvgPool2d(kernel_size=1, stride=1)
 #             #self.globlavgpool = nn.AdaptiveAvgPool2d((1,1))
 #             #self.flatten = nn.Flatten()
-            
+            #nn.Hardtanh(0, 20, inplace=True)
             c1d_kernel =3
             #c1d_kernel =1 
             channel_start_out = 1024
@@ -302,45 +302,45 @@ class DeepSpeech(pl.LightningModule):
                     bias=False
                 ),
                 nn.ReLU(inplace=True),
-                nn.AvgPool1d(1),
+                #nn.AvgPool1d(1),
                 nn.Conv1d(
                     8192,
                     4096,
-                    kernel_size=7,
+                    kernel_size=3,
                     stride=1,
                     groups=1, #self.n_features,
-                    padding=3,
+                    padding=1,
                     bias=False
                 ),
-                nn.AvgPool1d(1),
+                nn.MaxPool1d(1),
                 nn.ReLU(inplace=True),
                 nn.Conv1d(
                     4096,
                     1024,
-                    kernel_size=41,
+                    kernel_size=3,
                     stride=1,
                     groups=1, #self.n_features,
-                    padding=20,
+                    padding=1,
                     bias=False
                 ),
                 nn.ReLU(inplace=True),
                 nn.Conv1d(
                     1024,
                     512,
-                    kernel_size=21,
+                    kernel_size=3,
                     stride=1,
                     groups=1, #self.n_features,
-                    padding=10,
+                    padding=1,
                     bias=False
                 ),
                 nn.ReLU(inplace=True),
                 nn.Conv1d(
                     512,
                     96,
-                    kernel_size=21,
+                    kernel_size=3,
                     stride=1,
                     groups=1, #self.n_features,
-                    padding=10,
+                    padding=1,
                     bias=False
                 ),
                 nn.ReLU(inplace=True),
