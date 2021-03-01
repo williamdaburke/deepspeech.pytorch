@@ -207,6 +207,13 @@ class DeepSpeech(pl.LightningModule):
                 SequenceWise(fully_connected),
             )
             
+            self.lookahead = nn.Sequential(
+                # consider adding batch norm?
+                Lookahead(num_classes if self.fcn else self.model_cfg.hidden_size, context=self.model_cfg.lookahead_context),
+                nn.Hardtanh(0, 20, inplace=True)
+            ) if not self.bidirectional else None
+
+            
         else:
             self.conv = MaskConv(nn.Sequential(
                 nn.Conv2d(1, 32, kernel_size=(41, 11), stride=(2, 2), padding=(20, 5)),
@@ -285,7 +292,7 @@ class DeepSpeech(pl.LightningModule):
 #             #self.avpool = nn.AvgPool2d(kernel_size=1, stride=1)
 #             #self.globlavgpool = nn.AdaptiveAvgPool2d((1,1))
 #             #self.flatten = nn.Flatten()
-            #nn.Hardtanh(0, 20, inplace=True)
+            
             c1d_kernel =3
             #c1d_kernel =1 
             channel_start_out = 1024
@@ -294,7 +301,7 @@ class DeepSpeech(pl.LightningModule):
             self.conv1D =  nn.Sequential(
                 nn.Conv1d(
                     conv1d_input,
-                    8192,
+                    1024,
                     kernel_size=3,
                     stride=1,
                     groups=1,
@@ -302,20 +309,10 @@ class DeepSpeech(pl.LightningModule):
                     bias=False
                 ),
                 nn.ReLU(inplace=True),
-                #nn.AvgPool1d(1),
+                nn.BatchNorm1d(1024),
+                nn.AvgPool1d(1),
                 nn.Conv1d(
-                    8192,
-                    4096,
-                    kernel_size=3,
-                    stride=1,
-                    groups=1, #self.n_features,
-                    padding=1,
-                    bias=False
-                ),
-                nn.MaxPool1d(1),
-                nn.ReLU(inplace=True),
-                nn.Conv1d(
-                    4096,
+                    1024,
                     1024,
                     kernel_size=3,
                     stride=1,
@@ -324,6 +321,8 @@ class DeepSpeech(pl.LightningModule):
                     bias=False
                 ),
                 nn.ReLU(inplace=True),
+                nn.BatchNorm1d(1024),
+                nn.AvgPool1d(1),
                 nn.Conv1d(
                     1024,
                     512,
@@ -333,10 +332,12 @@ class DeepSpeech(pl.LightningModule):
                     padding=1,
                     bias=False
                 ),
+                
                 nn.ReLU(inplace=True),
+                nn.BatchNorm1d(512),
                 nn.Conv1d(
                     512,
-                    96,
+                    256,
                     kernel_size=3,
                     stride=1,
                     groups=1, #self.n_features,
@@ -344,8 +345,20 @@ class DeepSpeech(pl.LightningModule):
                     bias=False
                 ),
                 nn.ReLU(inplace=True),
+                nn.BatchNorm1d(256),
                 nn.Conv1d(
-                    96,
+                    256,
+                    128,
+                    kernel_size=3,
+                    stride=1,
+                    groups=1, #self.n_features,
+                    padding=1,
+                    bias=False
+                ),
+                nn.ReLU(inplace=True),
+                nn.BatchNorm1d(128),
+                nn.Conv1d(
+                    128,
                     num_classes,
                     kernel_size=c1d_kernel,
                     stride=1,
@@ -357,13 +370,6 @@ class DeepSpeech(pl.LightningModule):
 
             
         
-        self.lookahead = nn.Sequential(
-            # consider adding batch norm?
-            Lookahead(num_classes if self.fcn else self.model_cfg.hidden_size, context=self.model_cfg.lookahead_context),
-            nn.Hardtanh(0, 20, inplace=True)
-        ) if not self.bidirectional else None
-
-
         self.inference_softmax = InferenceBatchSoftmax()
         self.criterion = CTCLoss(blank=self.labels.index('_'), reduction='sum', zero_infinity=True)
         self.evaluation_decoder = GreedyDecoder(self.labels)  # Decoder used for validation
@@ -412,8 +418,9 @@ class DeepSpeech(pl.LightningModule):
             
             
             x = x.transpose(1, 2).contiguous()
-            x = self.lookahead(x).transpose(0, 1)
-            x = x.transpose(0, 1)
+            
+            #x = self.lookahead(x).transpose(0, 1)
+            #x = x.transpose(0, 1)
         
 #         else:
 #             xsize1 = x.size()
