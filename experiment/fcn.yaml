@@ -10,7 +10,7 @@ data:
       speed_volume_perturb: False
       spec_augment: False
 trainer:
-  max_epochs: 200
+  max_epochs: 100
   gpus: 1
   precision: 16
   gradient_clip_val: 400  # Norm cutoff to prevent explosion of gradients
