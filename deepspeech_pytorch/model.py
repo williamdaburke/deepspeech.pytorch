@@ -286,13 +286,13 @@ class DeepSpeech(pl.LightningModule):
                     bias=False
                 ),
                 nn.ReLU(inplace=True),
+                #nn.AvgPool1d(1),
                 nn.BatchNorm1d(128),
                 nn.Conv1d(
                     128,
                     num_classes,
                     kernel_size=c1d_kernel,
                     stride=1,
-
                     groups=1,  
                     padding=1,
                     bias=False
