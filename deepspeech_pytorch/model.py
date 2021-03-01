@@ -264,7 +264,7 @@ class DeepSpeech(pl.LightningModule):
                 ),
                 
                 nn.ReLU(inplace=True),
-                nn.BatchNorm1d(2048),
+                #nn.BatchNorm1d(2048),
                 nn.Conv1d(
                     2048,
                     512,
@@ -275,7 +275,7 @@ class DeepSpeech(pl.LightningModule):
                     bias=False
                 ),
                 nn.ReLU(inplace=True),
-                nn.BatchNorm1d(512),
+                #nn.BatchNorm1d(512),
                 nn.Conv1d(
                     512,
                     128,
